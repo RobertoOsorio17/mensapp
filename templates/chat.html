@@ -1,0 +1,461 @@
+<!-- templates/chat.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat con {{ friend_username }}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
+    <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #f0f2f5;
+        }
+
+        .chat-container {
+            max-width: 1200px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 40px);
+        }
+
+        .chat-header {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8f9fa;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .user-info {
+            flex: 1;
+        }
+
+        .user-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .user-status {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: #4caf50;
+        }
+
+        .user-status::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: currentColor;
+            border-radius: 50%;
+        }
+
+        .message-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .message-input-container {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8f9fa;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .message-input {
+            flex: 1;
+            margin: 0 !important;
+        }
+
+        .send-button {
+            background-color: #6200ee !important;
+        }
+
+        .send-button i {
+            color: white;
+        }
+
+        .message {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            margin: 4px 0;
+        }
+
+        .sent {
+            align-self: flex-end;
+            background-color: #6200ee;
+            color: white;
+        }
+
+        .received {
+            align-self: flex-start;
+            background-color: #f0f0f0;
+        }
+
+        .message-time {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        /* Scrollbar personalizado */
+        .message-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .message-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .message-list::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        .message-list::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
+        <header class="mdl-layout__header">
+            <div class="mdl-layout__header-row">
+                <span class="mdl-layout-title">MensApp</span>
+            </div>
+        </header>
+        <main class="mdl-layout__content">
+            <div class="chat-container">
+                <div class="chat-header">
+                    <div class="user-avatar">
+                        {{ friend_username[0].upper() }}
+                    </div>
+                    <div class="user-info">
+                        <div class="user-name">{{ friend_username }}</div>
+                        <div class="user-status">En línea</div>
+                    </div>
+                </div>
+                
+                <div id="message-list" class="message-list">
+                    {% for message in messages %}
+                        <div class="message {% if message.sender_id == session['user_id'] %}sent{% else %}received{% endif %}" 
+                             data-encrypted="{{ message.content }}" 
+                             data-nonce="{{ message.nonce }}"
+                             data-timestamp="{{ message.timestamp }}">
+                            <div class="message-content">
+                                Descifrando mensaje...
+                            </div>
+                            <div class="message-time">
+                                {{ message.timestamp.strftime('%H:%M') }}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <form id="message-form" onsubmit="sendMessage(event)">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="message-input-container">
+                        <div class="mdl-textfield mdl-js-textfield message-input">
+                            <input class="mdl-textfield__input" type="text" id="message-input" autocomplete="off">
+                            <label class="mdl-textfield__label" for="message-input">Escribe un mensaje...</label>
+                        </div>
+                        <button class="mdl-button mdl-js-button mdl-button--fab mdl-button--mini-fab send-button" type="submit">
+                            <i class="material-icons">send</i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast" class="mdl-js-snackbar mdl-snackbar">
+        <div class="mdl-snackbar__text"></div>
+        <button class="mdl-snackbar__action" type="button"></button>
+    </div>
+
+    <script>
+        // 1. Inicialización con opciones específicas de Socket.IO
+        const socket = io({
+            path: '/socket.io/',
+            transports: ['polling', 'websocket'],
+            upgrade: true,
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            forceNew: true,
+            pingTimeout: 60000,
+            pingInterval: 25000
+        });
+        
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const messageList = document.getElementById('message-list');
+        const friendId = {{ friend_id }};
+        const csrfToken = "{{ csrf_token() }}";
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Manejo de eventos de conexión
+        socket.on('connect', () => {
+            console.log('Conectado al servidor');
+            socket.emit('join_chat', {
+                friend_id: friendId
+            });
+        });
+
+        socket.on('connect_error', (error) => {
+            console.log('Error de conexión:', error);
+            if (error.message === 'Unauthorized') {
+                window.location.href = '/auth/login';
+            }
+        });
+
+        socket.on('error', (error) => {
+            console.log('Error de socket:', error);
+        });
+
+        // 2. Funciones de cifrado
+        async function generateChatKey(userId, friendId) {
+            const encoder = new TextEncoder();
+            const sharedInfo = `${Math.min(userId, friendId)}_${Math.max(userId, friendId)}_1`;
+            const salt = encoder.encode('fixed_salt_for_chat');
+            
+            const keyMaterial = await window.crypto.subtle.importKey(
+                "raw",
+                encoder.encode(sharedInfo),
+                { name: "PBKDF2" },
+                false,
+                ["deriveBits", "deriveKey"]
+            );
+            
+            return await window.crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: salt,
+                    iterations: 100000,
+                    hash: "SHA-256"
+                },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptMessage(message, key) {
+            try {
+                const encoder = new TextEncoder();
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                
+                const encryptedContent = await window.crypto.subtle.encrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv
+                    },
+                    key,
+                    encoder.encode(message)
+                );
+                
+                return {
+                    ciphertext: Array.from(new Uint8Array(encryptedContent))
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join(''),
+                    nonce: Array.from(iv)
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('')
+                };
+            } catch (error) {
+                console.error('Error en encryptMessage:', error);
+                throw error;
+            }
+        }
+
+        async function decryptMessage(encrypted_data, key) {
+            try {
+                if (!encrypted_data || !encrypted_data.nonce || !encrypted_data.ciphertext) {
+                    throw new Error('Datos de cifrado incompletos');
+                }
+
+                const iv = new Uint8Array(encrypted_data.nonce.match(/.{2}/g).map(byte => parseInt(byte, 16)));
+                const ciphertext = new Uint8Array(encrypted_data.ciphertext.match(/.{2}/g).map(byte => parseInt(byte, 16)));
+
+                const decrypted = await window.crypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv,
+                        tagLength: 128
+                    },
+                    key,
+                    ciphertext
+                );
+                
+                return new TextDecoder().decode(decrypted);
+            } catch (error) {
+                console.error('Error en decryptMessage:', error);
+                throw error;
+            }
+        }
+
+        // 3. Función para enviar mensajes
+        async function sendMessage(event) {
+            event.preventDefault();
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            
+            if (!message) return;
+            
+            try {
+                const key = await generateChatKey({{ session['user_id'] }}, friendId);
+                const encrypted = await encryptMessage(message, key);
+                
+                socket.emit('send_message', {
+                    receiver_id: friendId,
+                    encrypted_data: encrypted
+                });
+                
+                // Agregar el mensaje a la UI inmediatamente
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', 'sent');
+                messageDiv.innerHTML = `
+                    <div class="message-content">${message}</div>
+                    <div class="message-time">${new Date().toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}</div>
+                `;
+                messageList.appendChild(messageDiv);
+                scrollToBottom();
+                
+                messageInput.value = '';
+                messageInput.focus();
+            } catch (error) {
+                console.error('Error al enviar mensaje:', error);
+                showToast('Error al enviar el mensaje');
+            }
+        }
+
+        // Función para auto-scroll al último mensaje
+        function scrollToBottom() {
+            const messageList = document.getElementById('message-list');
+            messageList.scrollTop = messageList.scrollHeight;
+        }
+
+        // Llamar a scrollToBottom cuando se carga la página
+        scrollToBottom();
+
+        // Actualizar el scroll cuando llega un nuevo mensaje
+        socket.on('new_message', async (data) => {
+            try {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message');
+                messageDiv.classList.add(data.sender_id == {{ session['user_id'] }} ? 'sent' : 'received');
+                
+                let content = '[Mensaje no disponible]';
+                if (data.encrypted_data) {
+                    const key = await generateChatKey({{ session['user_id'] }}, friendId);
+                    content = await decryptMessage(data.encrypted_data, key);
+                }
+                
+                messageDiv.innerHTML = `
+                    <div class="message-content">${content}</div>
+                    <div class="message-time">${new Date(data.timestamp).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}</div>
+                `;
+                
+                messageList.appendChild(messageDiv);
+                scrollToBottom();
+            } catch (error) {
+                console.error('Error al procesar mensaje:', error);
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            socket.emit('leave_chat', {friend_id: friendId});
+        });
+
+        function showToast(message) {
+            const snackbarContainer = document.querySelector('.mdl-js-snackbar');
+            const data = {
+                message: message,
+                timeout: 2000
+            };
+            snackbarContainer.MaterialSnackbar.showSnackbar(data);
+        }
+
+        // Agregar después de la función scrollToBottom()
+        async function decryptInitialMessages() {
+            const messages = document.querySelectorAll('.message[data-encrypted]');
+            const key = await generateChatKey({{ session['user_id'] }}, friendId);
+            
+            for (const messageDiv of messages) {
+                try {
+                    const ciphertext = messageDiv.dataset.encrypted;
+                    const nonce = messageDiv.dataset.nonce;
+                    
+                    if (!ciphertext || !nonce) {
+                        console.error('Datos faltantes:', { ciphertext, nonce });
+                        continue;
+                    }
+
+                    console.log('Datos originales:', { ciphertext, nonce });
+
+                    const encrypted_data = {
+                        ciphertext: ciphertext,
+                        nonce: nonce
+                    };
+                    
+                    const content = await decryptMessage(encrypted_data, key);
+                    messageDiv.querySelector('.message-content').textContent = content;
+                } catch (error) {
+                    console.error('Error al descifrar mensaje:', error, messageDiv.dataset);
+                    messageDiv.querySelector('.message-content').textContent = '[Error al descifrar]';
+                }
+            }
+        }
+
+        // Llamar a la función cuando se carga la página
+        document.addEventListener('DOMContentLoaded', () => {
+            decryptInitialMessages();
+            scrollToBottom();
+        });
+    </script>
+</body>
+</html>
